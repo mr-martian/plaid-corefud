@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Document</title>
+    <style>
+      div.sentence-data {
+	  display: grid;
+	  grid-auto-flow: column;
+	  gap: 5px;
+      }
+      .word {
+	  text-align: center;
+      }
+      .coref-span {
+	  text-align: center;
+	  background: #AAAAAA;
+	  border-radius: 7px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>... document name</h1>
+    <label for="text-direction">RTL text</label>
+    <input type="checkbox" id="text-direction" onchange="draw_trees();"></input>
+    {% for sent in sentences %}
+    <h2>Sentence {{sent.index}}: {{sent.metadata.text}}</h2>
+    <div class="sentence" data-sent="{{sent|tojson|forceescape}}"></div>
+    {% endfor %}
+    <script type="text/javascript">
+      var COREF_SPANS = {{coref['span-layer/spans']|tojson|safe}};
+      const LAYER_ID = "{{coref['span-layer/id']}}";
+      var COREF_ENTITIES = {{entity_names|tojson|safe}};
+    </script>
+    <script type="text/javascript" src="/static/draw-trees.js"></script>
+  </body>
+</html>

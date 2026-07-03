@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Plaid CorefUD {{project['project/name']}}</title>
+  </head>
+  <body>
+    <h1>{{project['project/name']}} Documents</h1>
+    <table>
+      <thead>
+	<tr>
+	  <th>Name</th>
+	  <th>Created</th>
+	  <th>Modified</th>
+	</tr>
+      </thead>
+      <tbody>
+	{% for doc in data.entries %}
+	<tr>
+	  <td><a href="/document/{{doc['document/id']}}">{{doc['document/name']}}</a></td>
+	  <td>{{doc['document/time-created']}}</td>
+	  <td>{{doc['document/time-modified']}}</td>
+	</tr>
+	{% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>

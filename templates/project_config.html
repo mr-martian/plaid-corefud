@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Plaid CorefUD Projects</title>
+  </head>
+  <body>
+    <h1>{{data['project/name']}} Not Configured!</h1>
+    <p>Note: UD configuration should precede CorefUD configuration.</p>
+    <form action="/project/{{data['project/id']}}/configure" method="POST">
+      <button type="submit">Configure</button>
+    </form>
+  </body>
+</html>
