@@ -1,5 +1,5 @@
 from collections import defaultdict
-from flask import Flask, redirect, render_template, request, session
+from flask import Flask, flash, redirect, render_template, request, session
 from functools import wraps
 import requests
 
@@ -17,11 +17,13 @@ class LoginError(Exception):
 def send_request(method, path, **data):
     token = session.get('token')
     if not token:
+        flash('login required', 'auth')
         raise LoginError()
     r = requests.request(method, app.config['PLAID_URL'] + path,
                          json=data,
                          headers={'Authorization': 'Bearer '+token})
     if r.status_code == 401:
+        flash('your session has expired; please login again', 'auth')
         raise LoginError()
     try:
         blob = r.json()
@@ -40,7 +42,6 @@ def require_token(fn_):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login_page():
-    # TODO: error messages
     if request.method == 'POST':
         r = requests.post(app.config['PLAID_URL'] + 'login',
                           json={'user-id': request.form['username'],
@@ -49,6 +50,8 @@ def login_page():
             session['token'] = r.json()['token']
             session['username'] = request.form['username']
             return redirect('/')
+        else:
+            flash('invalid username or password', 'auth')
     return render_template('login.html')
 
 @app.get('/')

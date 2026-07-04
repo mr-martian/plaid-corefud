@@ -5,6 +5,15 @@
     <title>Plaid CorefUD Login</title>
   </head>
   <body>
+    {% with msg = get_flashed_messages(category_filter=['auth']) %}
+    {% if msg %}
+    <ul>
+      {% for m in msg %}
+      <li>{{m}}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
     <form method="POST">
       <label for="username">Username:</label>
       <input id="username" name="username"></input>
