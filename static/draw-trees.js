@@ -17,18 +17,16 @@ var WORD_LOCS = {};
 
 function draw_sentence(elem, swap) {
   const blob = JSON.parse(elem.dataset.sent);
-  elem.innerHTML = '';
-  let meta = elem.appendChild(document.createElement('details'));
-  let sum = meta.appendChild(document.createElement('summary'));
-  sum.innerText = 'Metadata';
-  let meta_ls = meta.appendChild(document.createElement('dl'));
+  let meta_ls = elem.querySelector('dl.sentence-metadata');
+  meta_ls.innerHTML = '';
   for (let k in blob.metadata) {
     meta_ls.innerHTML += `<dt>${k}</dt><dd>${blob.metadata[k]}</dd>`;
   }
-  let svg = elem.appendChild(document.createElementNS(
-	  'http://www.w3.org/2000/svg', 'svg'));
-  let table = elem.appendChild(document.createElement('div'));
-  table.className = 'sentence-data';
+  let svg = elem.querySelector('svg');
+  svg.innerHTML = '';
+  let table = elem.querySelector('div.sentence-data');
+  table.innerHTML = '';
+  let controls = elem.querySelector('div.controls');
   let w_order = blob.words.slice();
   if (swap) {
     w_order.reverse();
@@ -97,6 +95,14 @@ function draw_sentence(elem, swap) {
   ).join('');
 }
 
+function coref_label(eid) {
+  if (COREF_ENTITIES.hasOwnProperty(eid)) {
+    return `${COREF_ENTITIES[eid]} (${eid})`;
+  } else {
+    return eid;
+  }
+}
+
 function draw_coref(entry) {
   let cols = entry['span/tokens'].map(x => WORD_LOCS[x].col);
   if (cols.length > 0) {
@@ -105,12 +111,11 @@ function draw_coref(entry) {
     let node = WORD_LOCS[entry['span/tokens'][0]].elem.appendChild(
       document.createElement('div'));
     node.className = 'coref-span';
+    node.dataset.nodes = JSON.stringify(entry['span/tokens']);
+    node.dataset.id = entry['span/id'];
+    node.dataset.value = entry['span/value'];
     const eid = entry['span/value'];
-    if (COREF_ENTITIES.hasOwnProperty(eid)) {
-      node.innerText = `${COREF_ENTITIES[eid]} (${eid})`;
-    } else {
-      node.innerText = eid;
-    }
+    node.innerText = coref_label(eid);
     node.style['grid-column-start'] = start;
     node.style['grid-column-end'] = end + 1;
   }
@@ -124,4 +129,218 @@ function draw_trees() {
   COREF_SPANS.forEach(draw_coref);
 }
 
-draw_trees();
+function check_buttons(sentence, select_mention) {
+  const has_word = (sentence.querySelector('.word.selected') !== null);
+  const mention = sentence.querySelector('.coref-span.selected');
+  const has_mention = (mention !== null);
+  sentence.querySelector('.btn-add').toggleAttribute('disabled', !has_word);
+  sentence.querySelector('.btn-del').toggleAttribute('disabled', !has_mention);
+  sentence.querySelector('.btn-shift').toggleAttribute('disabled', (!has_word || !has_mention));
+  sentence.querySelector('.btn-change').toggleAttribute('disabled', !has_mention);
+  sentence.querySelector('.btn-rename').toggleAttribute('disabled', !has_mention);
+  const name_field = sentence.querySelector('.entity-name');
+  if (!has_mention) {
+    name_field.value = '';
+  } else if (has_mention && select_mention) {
+    const v = mention.dataset.value;
+    if (COREF_ENTITIES.hasOwnProperty(v)) {
+      name_field.value = COREF_ENTITIES[v];
+    } else {
+      name_field.value = v;
+    }
+  }
+}
+
+// equality of sorted arrays
+function array_eq(a, b) {
+  if (a.length != b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function same_words(coref, words) {
+  return array_eq(words, JSON.parse(coref.dataset.nodes).toSorted());
+}
+
+async function get_entity_id(label, etype) {
+  for (let k in COREF_ENTITIES) {
+    if (k[0] == etype && COREF_ENTITIES[k] == label) {
+      return k;
+    }
+  }
+  const resp = await fetch('/entity', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      document: DOCUMENT_ID,
+      type: etype,
+      name: label,
+    }),
+  });
+  if (resp.ok) {
+    const data = await resp.json();
+    COREF_ENTITIES[data.id] = data.name;
+    const dl = document.getElementById('entities');
+    const op = dl.appendChild(document.createElement('option'));
+    op.dataset.id = data.id;
+    op.innerText = data.name;
+    return data.id;
+  }
+  return label;
+}
+
+function selected_words(sentence) {
+  let id_list = Array.from(sentence.querySelectorAll(
+    '.word.selected')).map(w => w.dataset.id);
+  id_list.sort();
+  return id_list;
+}
+
+async function handle_click(event) {
+  const cls = event.target.classList;
+  const sentence = event.target.closest('.sentence');
+  if (cls.contains('btn-add')) {
+    let label = sentence.querySelector('.entity-name').value;
+    if (!label.length) {
+      return;
+    }
+    let etype = sentence.querySelector('.entity-type').value;
+    let id_list = selected_words(sentence);
+    if (!id_list.length) {
+      return;
+    }
+    for (let c of sentence.querySelectorAll('.coref-span')) {
+      if (same_words(c, id_list)) {
+        return;
+      }
+    }
+    let value = await get_entity_id(label, etype);
+    fetch('/span', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        tokens: id_list,
+        'span-layer-id': LAYER_ID,
+        value: value,
+      })}).then(resp => resp.json()).then(data => {
+        let span = {
+          'span/id': data.id,
+          'span/tokens': id_list,
+          'span/value': value,
+        };
+        COREF_SPANS.push(span);
+        draw_coref(span);
+      });
+  } else if (cls.contains('btn-del')) {
+    let coref = sentence.querySelector('.coref-span.selected');
+    if (coref !== null && coref.dataset.id) {
+      fetch(`/span/${coref.dataset.id}`, {method: 'DELETE'}).then(resp => {
+        if (resp.ok) {
+          COREF_SPANS = COREF_SPANS.filter(
+            s => (s['span/id'] !== coref.dataset.id));
+          coref.remove();
+          check_buttons(sentence);
+        }
+      });
+    }
+  } else if (cls.contains('btn-shift')) {
+    let coref = sentence.querySelector('.coref-span.selected');
+    let words = selected_words(sentence);
+    if (!words.length || coref === null || same_words(coref, words)) {
+      return;
+    }
+    fetch(`/span/${coref.dataset.id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tokens: words}),
+    }).then(resp => {
+      if (resp.ok) {
+        for (let k = 0; k < COREF_SPANS.length; k++) {
+          if (COREF_SPANS[k]['span/id'] == coref.dataset.id) {
+            COREF_SPANS[k]['span/tokens'] = words;
+            draw_coref(COREF_SPANS[k]);
+          }
+        }
+        coref.remove();
+        check_buttons(sentence);
+      }
+    });
+  } else if (cls.contains('btn-change')) {
+    let coref = sentence.querySelector('.coref-span.selected');
+    if (coref === null) {
+      return;
+    }
+    let label = sentence.querySelector('.entity-name').value;
+    if (!label.length) {
+      return;
+    }
+    let etype = sentence.querySelector('.entity-type').value;
+    let value = await get_entity_id(label, etype);
+    fetch(`/span/${coref.dataset.id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({value: value}),
+    }).then(resp => {
+      if (resp.ok) {
+        coref.innerText = coref_label(value);
+      }
+    });
+  } else if (cls.contains('btn-rename')) {
+    let coref = sentence.querySelector('.coref-span.selected');
+    if (coref === null) {
+      return;
+    }
+    let name = sentence.querySelector('.entity-name').value;
+    if (COREF_ENTITIES[coref.dataset.id] !== name) {
+      fetch('/entity', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          document: DOCUMENT_ID,
+          id: coref.dataset.value,
+          name: name,
+        })}).then(async function(resp) {
+          if (resp.ok) {
+            let data = await resp.json();
+            COREF_ENTITIES[data.id] = data.name;
+            let label = coref_label(data.id);
+            Array.from(document.querySelectorAll(
+              `.coref-span[data-value="${data.id}"]`)).forEach(
+                s => { s.innerText = label; });
+            let op = document.querySelector(`#entities option[data-id="${data.id}"]`);
+            if (op !== null) {
+              op.innerText = data.name;
+            }
+          }
+        });
+    }
+  } else {
+    let word = event.target.closest('.word');
+    let coref = event.target.closest('.coref-span');
+    if (word !== null) {
+      word.classList.toggle('selected');
+      check_buttons(sentence);
+    } else if (coref !== null) {
+      if (!coref.classList.contains('selected')) {
+        let sent = coref.closest('.sentence-data');
+        Array.from(sent.querySelectorAll('.selected')).forEach(
+          (e) => e.classList.remove('selected'));
+        JSON.parse(coref.dataset.nodes).forEach(
+          wid => sent.querySelector(`div.word[data-id="${wid}"]`).classList.add('selected'));
+      }
+      coref.classList.toggle('selected');
+      check_buttons(sentence, true);
+    }
+  }
+}
+
+window.addEventListener('load', (event) => {
+  draw_trees();
+  document.addEventListener('click', handle_click);
+});

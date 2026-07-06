@@ -2,36 +2,80 @@
 <html>
   <head>
     <meta charset="utf-8"/>
-    <title>Document</title>
+    <title>{{document['document/name']}}</title>
     <style>
       div.sentence-data {
-	  display: grid;
-	  grid-auto-flow: column;
-	  gap: 5px;
+	        display: grid;
+	        grid-auto-flow: column;
+	        gap: 5px;
       }
       .word {
-	  text-align: center;
+	        text-align: center;
+	        border-radius: 7px;
+      }
+      .word:hover {
+	        background-color: #BBBBBB;
+      }
+      .word.selected {
+	        border: 3px solid blue;
       }
       .coref-span {
-	  text-align: center;
-	  background: #AAAAAA;
-	  border-radius: 7px;
+	        text-align: center;
+	        background: #AAAAAA;
+	        border-radius: 7px;
+      }
+      .coref-span.selected {
+	        border: 3px solid blue;
       }
     </style>
   </head>
   <body>
-    <h1>... document name</h1>
+    <h1>{{document['document/name']}}</h1>
+    <p><a href="/project/{{document['document/project']}}">Return to project</a></p>
     <label for="text-direction">RTL text</label>
     <input type="checkbox" id="text-direction" onchange="draw_trees();"></input>
     {% for sent in sentences %}
     <h2>Sentence {{sent.index}}: {{sent.metadata.text}}</h2>
-    <div class="sentence" data-sent="{{sent|tojson|forceescape}}"></div>
+    <div class="sentence" data-sent="{{sent|tojson|forceescape}}">
+      <details>
+	      <summary>Metadata</summary>
+	      <dl class="sentence-metadata"></dl>
+      </details>
+      <svg class="tree"></svg>
+      <div class="sentence-data"></div>
+      <div class="controls">
+	      <button class="btn-add" disabled>Add Mention</button>
+	      <button class="btn-del" disabled>Delete Mention</button>
+	      <button class="btn-shift" disabled>Shift Mention</button>
+	      <button class="btn-change" disabled>Change Entity</button>
+	      <button class="btn-rename" disabled>Rename Entity</button>
+	      <input class="entity-name" list="entities"></input>
+	      <select class="entity-type">
+	        <option value="p">person</option>
+          <option value="t">time</option>
+          <option value="i">object</option>
+          <option value="l">place</option>
+          <option value="n">organization</option>
+          <option value="a">abstract</option>
+          <option value="c">animal</option>
+          <option value="v">plant</option>
+          <option value="e">event</option>
+          <option value="s">substance</option>
+	      </select>
+      </div>
+    </div>
     {% endfor %}
     <script type="text/javascript">
       var COREF_SPANS = {{coref['span-layer/spans']|tojson|safe}};
       const LAYER_ID = "{{coref['span-layer/id']}}";
+      const DOCUMENT_ID = "{{document['document/id']}}";
       var COREF_ENTITIES = {{entity_names|tojson|safe}};
     </script>
     <script type="text/javascript" src="/static/draw-trees.js"></script>
+    <datalist id="entities">
+      {% for k, v in entity_names|items %}
+      <option data-id="{{k}}">{{v}}</option>
+      {% endfor %}
+    </datalist>
   </body>
 </html>

@@ -3,7 +3,7 @@ from flask import Flask, flash, redirect, render_template, request, session
 from functools import wraps
 import requests
 
-app = Flask('plaid-corefud')
+app = Flask(__name__)
 app.config.from_prefixed_env()
 if not app.config.get('PLAID_URL'):
     app.config['PLAID_URL'] = 'http://localhost:8080/'
@@ -160,4 +160,73 @@ def document(docid):
         })
     entity_names = data.get('metadata', {}).get('corefud', {}).get('entities', {})
     return render_template('document.html', sentences=sentences,
-                           coref=coref_layer, entity_names=entity_names)
+                           coref=coref_layer, entity_names=entity_names,
+                           document=data)
+
+@app.post('/span')
+@require_token
+def add_span():
+    inp = request.get_json()
+    code, data = send_request('POST', 'spans', **inp)
+    return data, code
+
+@app.delete('/span/<string:spanid>')
+@require_token
+def delete_span(spanid):
+    code, data = send_request('DELETE', f'spans/{spanid}')
+    return data, code
+
+@app.put('/span/<string:spanid>')
+@require_token
+def shift_span(spanid):
+    inp = request.get_json()
+    code, data = send_request('PUT', f'spans/{spanid}/tokens', **inp)
+    return data, code
+
+@app.patch('/span/<string:spanid>')
+@require_token
+def relabel_span(spanid):
+    inp = request.get_json()
+    code, data = send_request('PATCH', f'spans/{spanid}', **inp)
+    return data, code
+
+@app.route('/entity', methods=['POST', 'PATCH'])
+@require_token
+def modify_entity():
+    inp = request.get_json()
+    docid = inp['document']
+    code, data = send_request('GET', f'documents/{docid}')
+    if code >= 300:
+        return data, code
+    block = data.get('metadata', {}).get('corefud', {})
+    if 'entities' not in block:
+        block['entities'] = {}
+    entities = block['entities']
+    if request.method == 'POST':
+        etype = inp['type']
+        if etype not in set('ptilnacves'):
+            return {'error': 'bad entity type'}, 400
+        if 'counts' not in block:
+            block['counts'] = {}
+        c = block['counts'].get(etype, 0)
+        c += 1
+        block['counts'][etype] = c
+        eid = f'{etype}{c}'
+        block['entities'][eid] = inp['name']
+        code2, data2 = send_request('PATCH', f'documents/{docid}/metadata',
+                                    corefud=block)
+        if code2 >= 300:
+            return data2, code2
+        return {'id': eid, 'name': inp['name']}
+    else:
+        eid = inp['id']
+        if eid not in entities:
+            return {'error': 'no such entity id'}, 400
+        name = inp['name']
+        if entities[eid] != name:
+            block['entities'][eid] = name
+            code2, data2 = send_request(
+                'PATCH', f'documents/{docid}/metadata', corefud=block)
+            if code2 >= 300:
+                return data2, code2
+        return {'id': eid, 'name': name}
