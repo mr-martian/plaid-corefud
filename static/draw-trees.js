@@ -75,7 +75,7 @@ function draw_sentence(elem, swap) {
     }
   });
   let baseline = max_height+40;
-  svg.setAttribute('width', table.getBoundingClientRect().width);
+  svg.setAttribute('width', table.scrollWidth);
   svg.setAttribute('height', max_height+40);
   svg.innerHTML = arcs.map(
 	  function(arc) {

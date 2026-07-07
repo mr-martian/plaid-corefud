@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Upload data for {{data['document/name']}}</title>
+  </head>
+  <body>
+    {% with msg = get_flashed_messages(category_filter=['upload']) %}
+    {% if msg %}
+    <ul>
+      {% for m in msg %}
+      <li>{{m}}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+    <form method="POST" enctype="multipart/form-data">
+      <label for="metadata">Sentence Metadata Field:</label>
+      <input id="metadata" name="metadata" required/>
+      <br/>
+      <label for="file">File:</label>
+      <input id="file" name="file" type="file" required/>
+      <br/>
+      <button type="submit">Upload</button>
+    </form>
+    <p>File format: <code>sentence_id start_word end_word entity_id name</code></p>
+    <p>Separate with tabs.</p>
+    <p>Use the <code>metadata</code> field to specifiy how to interpret the <code>sentence_id</code> column (since the UD importer does not preserve actual sentence IDs).</p>
+    <p>Words are 1-indexed (should match CoNLL-U ID column).</p>
+    <p>If multiple rows have the same <code>entity_id</code> but different <code>name</code> values, the last one seen will take precedence.</p>
+  </body>
+</html>

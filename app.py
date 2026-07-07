@@ -14,13 +14,14 @@ app.config['PLAID_URL'] += 'api/v1/'
 class LoginError(Exception):
     pass
 
-def send_request(method, path, **data):
+def send_request(method, path, blob=None, **data):
     token = session.get('token')
     if not token:
         flash('login required', 'auth')
         raise LoginError()
+    param = blob if blob is not None else data
     r = requests.request(method, app.config['PLAID_URL'] + path,
-                         json=data,
+                         json=param,
                          headers={'Authorization': 'Bearer '+token})
     if r.status_code == 401:
         flash('your session has expired; please login again', 'auth')
@@ -104,6 +105,9 @@ def project_config(pid):
                  configured=True)
     return redirect('/project/'+pid)
 
+def token_sort_key(w):
+    return (w['token/begin'], w['token/precedence'] or 0)
+
 @app.get('/document/<string:docid>')
 @require_token
 def document(docid):
@@ -147,7 +151,7 @@ def document(docid):
         sz = st['token/end']
         wd = [w for w in words['token-layer/tokens']
               if sa <= w['token/begin'] <= w['token/end'] <= sz]
-        wd.sort(key=lambda w: (w['token/begin'], w['token/precedence'] or 0))
+        wd.sort(key=token_sort_key)
         wids = set(w['token/id'] for w in wd)
         sentences.append({
             'index': idx,
@@ -230,3 +234,67 @@ def modify_entity():
             if code2 >= 300:
                 return data2, code2
         return {'id': eid, 'name': name}
+
+@app.route('/document/<string:docid>/upload', methods=['GET', 'POST'])
+@require_token
+def upload_data(docid):
+    if request.method == 'GET':
+        code, data = send_request('GET', f'documents/{docid}')
+        return render_template('upload_form.html', data=data)
+    code, data = send_request('GET', 'documents/'+docid+'?include-body=true')
+    # TODO: error handling
+    metadata_key = request.form['metadata']
+    baseline = find_by_role(data, 'document/text-layers', 'baseline')
+    sentence = find_by_role(baseline, 'text-layer/token-layers', 'sentence')
+    word = find_by_role(baseline, 'text-layer/token-layers', 'syntactic-word')
+    sent_ranges = []
+    for sent in sentence['token-layer/tokens']:
+        k = sent.get('metadata', {}).get(metadata_key)
+        sent_ranges.append((k, sent['token/begin'], sent['token/end']))
+    word_locs = {}
+    words_by_sent = defaultdict(list)
+    for w in word['token-layer/tokens']:
+        sid = None
+        for k, a, z in sent_ranges:
+            if a <= w['token/begin'] <= w['token/end'] <= z:
+                words_by_sent[k].append(w)
+                break
+    for k in words_by_sent:
+        for i, w in enumerate(sorted(words_by_sent[k], key=token_sort_key), 1):
+            word_locs[(k, i)] = w['token/id']
+    coref_layer = None
+    for layer in word['token-layer/span-layers']:
+        if layer.get('config', {}).get('corefud', {}).get('role', {}).get('is_id'):
+            coref_layer = layer['span-layer/id']
+            break
+    metadata = data.get('document/metadata', {}).get('corefud', {})
+    counts = metadata.get('counts', {})
+    names = metadata.get('entities', {})
+    eid_remap = {}
+    spans = []
+    for row in request.files['file'].readlines():
+        cols = row.decode('utf-8').strip().split('\t')
+        if len(cols) != 5:
+            continue
+        s, a, z, e, n = cols
+        tokens = []
+        for i in range(int(a), int(z)+1):
+            if (s, i) in word_locs:
+                tokens.append(word_locs[(s, i)])
+        if not tokens:
+            continue
+        if e not in eid_remap:
+            counts[e[0]] = counts.get(e[0], 0) + 1
+            eid_remap[e] = e[0] + str(counts[e[0]])
+        e2 = eid_remap[e]
+        names[e2] = n
+        spans.append({
+            'span-layer-id': coref_layer,
+            'tokens': tokens,
+            'value': e2,
+        })
+    metadata['counts'] = counts
+    metadata['entities'] = names
+    send_request('PATCH', f'documents/{docid}/metadata', corefud=metadata)
+    send_request('POST', 'spans/bulk', blob=spans)
+    return redirect(f'/document/{docid}')
