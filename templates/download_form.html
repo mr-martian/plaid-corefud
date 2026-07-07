@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Download Data</title>
+  </head>
+  <body>
+    {% with msg = get_flashed_messages(category_filter=['download']) %}
+    {% if msg %}
+    <ul>
+      {% for m in msg %}
+      <li>{{m}}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+    <form method="GET">
+      <label for="metadata">Sentence Metadata Field:</label>
+      <input id="metadata" name="metadata" required/>
+      <br/>
+      <button type="submit">Download</button>
+    </form>
+  </body>
+</html>

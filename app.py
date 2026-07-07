@@ -1,5 +1,5 @@
 from collections import defaultdict
-from flask import Flask, flash, redirect, render_template, request, session
+from flask import Flask, flash, redirect, render_template, request, session, Response
 from functools import wraps
 import requests
 
@@ -298,3 +298,62 @@ def upload_data(docid):
     send_request('PATCH', f'documents/{docid}/metadata', corefud=metadata)
     send_request('POST', 'spans/bulk', blob=spans)
     return redirect(f'/document/{docid}')
+
+@app.get('/document/<string:docid>/download')
+@require_token
+def download_data(docid):
+    if 'metadata' not in request.args:
+        code, data = send_request('GET', f'documents/{docid}')
+        return render_template('download_form.html', data=data)
+    code, data = send_request('GET', 'documents/'+docid+'?include-body=true')
+    # TODO: error handling
+    metadata_key = request.args['metadata']
+    baseline = find_by_role(data, 'document/text-layers', 'baseline')
+    sentence = find_by_role(baseline, 'text-layer/token-layers', 'sentence')
+    word = find_by_role(baseline, 'text-layer/token-layers', 'syntactic-word')
+    sent_ranges = []
+    for sent in sentence['token-layer/tokens']:
+        k = sent.get('metadata', {}).get(metadata_key)
+        sent_ranges.append((k, sent['token/begin'], sent['token/end']))
+    word_locs = {}
+    words_by_sent = defaultdict(list)
+    for w in word['token-layer/tokens']:
+        sid = None
+        for k, a, z in sent_ranges:
+            if a <= w['token/begin'] <= w['token/end'] <= z:
+                words_by_sent[k].append(w)
+                break
+    for k in words_by_sent:
+        for i, w in enumerate(sorted(words_by_sent[k], key=token_sort_key), 1):
+            word_locs[w['token/id']] = (k, i)
+    coref_layer = None
+    for layer in word['token-layer/span-layers']:
+        if layer.get('config', {}).get('corefud', {}).get('role', {}).get('is_id'):
+            coref_layer = layer
+            break
+    metadata = data.get('metadata', {}).get('corefud', {})
+    names = metadata.get('entities', {})
+    ret = ''
+    for span in coref_layer['span-layer/spans']:
+        sents = set()
+        words = set()
+        skip = False
+        for t in span['span/tokens']:
+            if t not in word_locs:
+                skip = True
+                break
+            else:
+                sents.add(word_locs[t][0])
+                words.add(word_locs[t][1])
+        if skip or len(sents) > 1:
+            continue
+        wa = min(words)
+        wz = max(words)
+        if words != set(range(wa, wz+1)):
+            # we don't support discontinuous spans in this version
+            continue
+        k = list(sents)[0]
+        e = span['span/value']
+        n = names.get(e, e).replace('\t', ' ').replace('\n', ' ')
+        ret += f'{k}\t{wa}\t{wz}\t{e}\t{n}\n'
+    return Response(ret, mimetype='text/tsv')
