@@ -26,7 +26,6 @@ function draw_sentence(elem, swap) {
   svg.innerHTML = '';
   let table = elem.querySelector('div.sentence-data');
   table.innerHTML = '';
-  let controls = elem.querySelector('div.controls');
   let w_order = blob.words.slice();
   if (swap) {
     w_order.reverse();
@@ -52,6 +51,13 @@ function draw_sentence(elem, swap) {
                         return `<dt>${k}</dt><dd>${w[k]}</dd>`;
                       }).join('') + '</dl></details>');
   });
+}
+
+function draw_arcs(sentence) {
+  const blob = JSON.parse(sentence.dataset.sent);
+  let svg = sentence.querySelector('svg');
+  svg.innerHTML = '';
+  let table = sentence.querySelector('div.sentence-data');
   let offset = svg.getBoundingClientRect().left;
   let centers = Array.from(table.querySelectorAll('.word')).map(
 	  function(w) {
@@ -127,6 +133,7 @@ function draw_trees() {
   document.querySelectorAll('.sentence').forEach(
     s => draw_sentence(s, swap));
   COREF_SPANS.forEach(draw_coref);
+  document.querySelectorAll('.sentence').forEach(draw_arcs);
 }
 
 function check_buttons(sentence, select_mention) {
@@ -236,6 +243,7 @@ async function handle_click(event) {
         };
         COREF_SPANS.push(span);
         draw_coref(span);
+        draw_arcs(sentence);
         Array.from(sentence.querySelectorAll('.word.selected')).forEach(
           w => w.classList.remove('selected'));
       });
@@ -270,6 +278,7 @@ async function handle_click(event) {
           }
         }
         coref.remove();
+        draw_arcs(sentence);
         check_buttons(sentence);
       }
     });
@@ -291,6 +300,7 @@ async function handle_click(event) {
     }).then(resp => {
       if (resp.ok) {
         coref.innerText = coref_label(value);
+        draw_arcs(sentence);
       }
     });
   } else if (cls.contains('btn-rename')) {
@@ -319,6 +329,8 @@ async function handle_click(event) {
             if (op !== null) {
               op.innerText = data.name;
             }
+            Array.from(document.getElementsByClassName('sentence')).forEach(
+              draw_arcs);
           }
         });
     }
