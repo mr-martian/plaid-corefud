@@ -236,6 +236,8 @@ async function handle_click(event) {
         };
         COREF_SPANS.push(span);
         draw_coref(span);
+        Array.from(sentence.querySelectorAll('.word.selected')).forEach(
+          w => w.classList.remove('selected'));
       });
   } else if (cls.contains('btn-del')) {
     let coref = sentence.querySelector('.coref-span.selected');
@@ -325,6 +327,23 @@ async function handle_click(event) {
     let coref = event.target.closest('.coref-span');
     if (word !== null) {
       word.classList.toggle('selected');
+      if (event.shiftKey) {
+        let last = Array.from(document.getElementsByClassName('last-clicked'));
+        if (last.length == 1 && last[0].closest('.sentence') === sentence) {
+          let toggle = false;
+          Array.from(sentence.getElementsByClassName('word')).forEach(
+            w => {
+              if (w === word || w === last[0]) {
+                toggle = !toggle;
+              } else if (toggle) {
+                w.classList.add('selected');
+              }
+            });
+        }
+      }
+      Array.from(document.getElementsByClassName('last-clicked')).forEach(
+        w => w.classList.remove('last-clicked'));
+      word.classList.add('last-clicked');
       check_buttons(sentence);
     } else if (coref !== null) {
       if (!coref.classList.contains('selected')) {
