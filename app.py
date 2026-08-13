@@ -333,7 +333,7 @@ def download_data(docid):
             break
     metadata = data.get('metadata', {}).get('corefud', {})
     names = metadata.get('entities', {})
-    ret = ''
+    ret = 'key\tstart\tend\teid\tname\n'
     for span in coref_layer['span-layer/spans']:
         sents = set()
         words = set()
@@ -356,4 +356,7 @@ def download_data(docid):
         e = span['span/value']
         n = names.get(e, e).replace('\t', ' ').replace('\n', ' ')
         ret += f'{k}\t{wa}\t{wz}\t{e}\t{n}\n'
-    return Response(ret, mimetype='text/tsv')
+    fname = data['document/name'].replace('/', '.').replace(' ', '_')
+    return Response(ret, mimetype='text/tsv',
+                    headers={'Content-Disposition':
+                             f'attachment; filename={fname}.tsv'})
