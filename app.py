@@ -203,22 +203,21 @@ def modify_entity():
     if code >= 300:
         return data, code
     block = data.get('metadata', {}).get('corefud', {})
-    if 'entities' not in block:
-        block['entities'] = {}
-    entities = block['entities']
+    entities = block.get('entities', {})
     if request.method == 'POST':
         etype = inp['type']
         if etype not in set('ptilnacves'):
             return {'error': 'bad entity type'}, 400
-        if 'counts' not in block:
-            block['counts'] = {}
-        c = block['counts'].get(etype, 0)
-        c += 1
-        block['counts'][etype] = c
+        c = block.get('counts', {}).get(etype, 0) + 1
         eid = f'{etype}{c}'
-        block['entities'][eid] = inp['name']
-        code2, data2 = send_request('PATCH', f'documents/{docid}/metadata',
-                                    corefud=block)
+        code2, data2 = send_request(
+            'PATCH', f'documents/{docid}/metadata',
+            blob=[
+                {'op': 'set', 'path': ['corefud', 'entities', eid],
+                 'value': inp['name']},
+                {'op': 'set', 'path': ['corefud', 'counts', etype],
+                 'value': c},
+            ])
         if code2 >= 300:
             return data2, code2
         return {'id': eid, 'name': inp['name']}
@@ -228,9 +227,10 @@ def modify_entity():
             return {'error': 'no such entity id'}, 400
         name = inp['name']
         if entities[eid] != name:
-            block['entities'][eid] = name
             code2, data2 = send_request(
-                'PATCH', f'documents/{docid}/metadata', corefud=block)
+                'PATCH', f'documents/{docid}/metadata',
+                blob=[{'op': 'set', 'path': ['corefud', 'entities', eid],
+                       'value': name}])
             if code2 >= 300:
                 return data2, code2
         return {'id': eid, 'name': name}
@@ -243,7 +243,7 @@ def upload_data(docid):
         return render_template('upload_form.html', data=data)
     code, data = send_request('GET', 'documents/'+docid+'?include-body=true')
     # TODO: error handling
-    metadata_key = request.form['metadata']
+    metadata_key = 'sent_id'
     baseline = find_by_role(data, 'document/text-layers', 'baseline')
     sentence = find_by_role(baseline, 'text-layer/token-layers', 'sentence')
     word = find_by_role(baseline, 'text-layer/token-layers', 'syntactic-word')
@@ -276,6 +276,8 @@ def upload_data(docid):
         cols = row.decode('utf-8').strip().split('\t')
         if len(cols) != 5:
             continue
+        if cols == ['key', 'start', 'end', 'eid', 'name']:
+            continue
         s, a, z, e, n = cols
         tokens = []
         for i in range(int(a), int(z)+1):
@@ -295,19 +297,18 @@ def upload_data(docid):
         })
     metadata['counts'] = counts
     metadata['entities'] = names
-    send_request('PATCH', f'documents/{docid}/metadata', corefud=metadata)
+    send_request('PATCH', f'documents/{docid}/metadata',
+                 blob=[{'op': 'set', 'path': ['corefud'],
+                        'value': metadata}])
     send_request('POST', 'spans/bulk', blob=spans)
     return redirect(f'/document/{docid}')
 
 @app.get('/document/<string:docid>/download')
 @require_token
 def download_data(docid):
-    if 'metadata' not in request.args:
-        code, data = send_request('GET', f'documents/{docid}')
-        return render_template('download_form.html', data=data)
     code, data = send_request('GET', 'documents/'+docid+'?include-body=true')
     # TODO: error handling
-    metadata_key = request.args['metadata']
+    metadata_key = 'sent_id'
     baseline = find_by_role(data, 'document/text-layers', 'baseline')
     sentence = find_by_role(baseline, 'text-layer/token-layers', 'sentence')
     word = find_by_role(baseline, 'text-layer/token-layers', 'syntactic-word')
