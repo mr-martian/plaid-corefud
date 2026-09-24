@@ -1,3 +1,11 @@
+var COREF_ENTITIES = {};
+var COREF_MENTIONS = {};
+const DIALOG = document.getElementById('dialog');
+const DIALOG_MODE = document.getElementById('dialog-mode');
+const DIALOG_EXISTING = document.getElementById('existing-entity');
+const DIALOG_NEW_NAME = document.getElementById('entity-name');
+const DIALOG_NEW_TYPE = document.getElementById('entity-type');
+
 function arc_path(baseline, head, dep, height) {
   let d = (head < dep) ? +0.2 : -0.2;
   return `M ${head} ${baseline}
@@ -102,14 +110,19 @@ function draw_arcs(sentence) {
 }
 
 function coref_label(eid) {
-  if (COREF_ENTITIES.hasOwnProperty(eid)) {
-    return `${COREF_ENTITIES[eid]} (${eid})`;
-  } else {
-    return eid;
+  if (COREF_MENTIONS.hasOwnProperty(eid)) {
+    const e = COREF_ENTITIES[COREF_MENTIONS[eid].entity];
+    if (e && e.metadata) {
+      return `${e.metadata.name} (${e.metadata.type})`;
+    }
   }
+  return '_';
 }
 
 function draw_coref(entry) {
+  if (entry.metadata && entry.metadata['abstract']) {
+    return;
+  }
   let cols = entry['span/tokens'].map(x => WORD_LOCS[x].col);
   if (cols.length > 0) {
     let start = Math.min(...cols);
@@ -119,9 +132,10 @@ function draw_coref(entry) {
     node.className = 'coref-span';
     node.dataset.nodes = JSON.stringify(entry['span/tokens']);
     node.dataset.id = entry['span/id'];
-    node.dataset.value = entry['span/value'];
-    const eid = entry['span/value'];
-    node.innerText = coref_label(eid);
+    if (COREF_MENTIONS.hasOwnProperty(entry['span/id'])) {
+      node.dataset.entity = COREF_MENTIONS[entry['span/id']].entity;
+    }
+    node.innerText = coref_label(entry['span/id']);
     node.style['grid-column-start'] = start;
     node.style['grid-column-end'] = end + 1;
   }
@@ -145,17 +159,6 @@ function check_buttons(sentence, select_mention) {
   sentence.querySelector('.btn-shift').toggleAttribute('disabled', (!has_word || !has_mention));
   sentence.querySelector('.btn-change').toggleAttribute('disabled', !has_mention);
   sentence.querySelector('.btn-rename').toggleAttribute('disabled', !has_mention);
-  const name_field = sentence.querySelector('.entity-name');
-  if (!has_mention) {
-    name_field.value = '';
-  } else if (has_mention && select_mention) {
-    const v = mention.dataset.value;
-    if (COREF_ENTITIES.hasOwnProperty(v)) {
-      name_field.value = COREF_ENTITIES[v];
-    } else {
-      name_field.value = v;
-    }
-  }
 }
 
 // equality of sorted arrays
@@ -175,33 +178,6 @@ function same_words(coref, words) {
   return array_eq(words, JSON.parse(coref.dataset.nodes).toSorted());
 }
 
-async function get_entity_id(label, etype) {
-  for (let k in COREF_ENTITIES) {
-    if (k[0] == etype && COREF_ENTITIES[k] == label) {
-      return k;
-    }
-  }
-  const resp = await fetch('/entity', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      document: DOCUMENT_ID,
-      type: etype,
-      name: label,
-    }),
-  });
-  if (resp.ok) {
-    const data = await resp.json();
-    COREF_ENTITIES[data.id] = data.name;
-    const dl = document.getElementById('entities');
-    const op = dl.appendChild(document.createElement('option'));
-    op.dataset.id = data.id;
-    op.innerText = data.name;
-    return data.id;
-  }
-  return label;
-}
-
 function selected_words(sentence) {
   let id_list = Array.from(sentence.querySelectorAll(
     '.word.selected')).map(w => w.dataset.id);
@@ -210,14 +186,17 @@ function selected_words(sentence) {
 }
 
 async function handle_click(event) {
+  if (event.target === null) {
+    return;
+  }
   const cls = event.target.classList;
   const sentence = event.target.closest('.sentence');
+  if (sentence !== null) {
+    document.querySelectorAll('.sentence.current').forEach(
+      s => s.classList.remove('current'));
+    sentence.classList.toggle('current');
+  }
   if (cls.contains('btn-add')) {
-    let label = sentence.querySelector('.entity-name').value;
-    if (!label.length) {
-      return;
-    }
-    let etype = sentence.querySelector('.entity-type').value;
     let id_list = selected_words(sentence);
     if (!id_list.length) {
       return;
@@ -227,26 +206,8 @@ async function handle_click(event) {
         return;
       }
     }
-    let value = await get_entity_id(label, etype);
-    fetch('/span', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        tokens: id_list,
-        'span-layer-id': LAYER_ID,
-        value: value,
-      })}).then(resp => resp.json()).then(data => {
-        let span = {
-          'span/id': data.id,
-          'span/tokens': id_list,
-          'span/value': value,
-        };
-        COREF_SPANS.push(span);
-        draw_coref(span);
-        draw_arcs(sentence);
-        Array.from(sentence.querySelectorAll('.word.selected')).forEach(
-          w => w.classList.remove('selected'));
-      });
+    DIALOG_MODE.value = 'add';
+    DIALOG.showModal();
   } else if (cls.contains('btn-del')) {
     let coref = sentence.querySelector('.coref-span.selected');
     if (coref !== null && coref.dataset.id) {
@@ -287,53 +248,15 @@ async function handle_click(event) {
     if (coref === null) {
       return;
     }
-    let label = sentence.querySelector('.entity-name').value;
-    if (!label.length) {
-      return;
-    }
-    let etype = sentence.querySelector('.entity-type').value;
-    let value = await get_entity_id(label, etype);
-    fetch(`/span/${coref.dataset.id}`, {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({value: value}),
-    }).then(resp => {
-      if (resp.ok) {
-        coref.innerText = coref_label(value);
-        draw_arcs(sentence);
-      }
-    });
+    DIALOG_MODE.value = 'change';
+    DIALOG.showModal();
   } else if (cls.contains('btn-rename')) {
     let coref = sentence.querySelector('.coref-span.selected');
     if (coref === null) {
       return;
     }
-    let name = sentence.querySelector('.entity-name').value;
-    if (COREF_ENTITIES[coref.dataset.id] !== name) {
-      fetch('/entity', {
-        method: 'PATCH',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          document: DOCUMENT_ID,
-          id: coref.dataset.value,
-          name: name,
-        })}).then(async function(resp) {
-          if (resp.ok) {
-            let data = await resp.json();
-            COREF_ENTITIES[data.id] = data.name;
-            let label = coref_label(data.id);
-            Array.from(document.querySelectorAll(
-              `.coref-span[data-value="${data.id}"]`)).forEach(
-                s => { s.innerText = label; });
-            let op = document.querySelector(`#entities option[data-id="${data.id}"]`);
-            if (op !== null) {
-              op.innerText = data.name;
-            }
-            Array.from(document.getElementsByClassName('sentence')).forEach(
-              draw_arcs);
-          }
-        });
-    }
+    DIALOG_MODE.value = 'rename';
+    DIALOG.showModal();
   } else {
     let word = event.target.closest('.word');
     let coref = event.target.closest('.coref-span');
@@ -371,7 +294,218 @@ async function handle_click(event) {
   }
 }
 
+function update_entity_select() {
+  let ops = [];
+  for (const k in COREF_ENTITIES) {
+    const v = COREF_ENTITIES[k].metadata;
+    const label = `${v.name} (${v.type})`
+    ops.push([label, `<option value="${k}">${label}</option>`])
+  }
+  ops.sort();
+  DIALOG_EXISTING.innerHTML = ops.map(x => x[1]).join();
+  DIALOG_EXISTING.dispatchEvent(new Event("chosen:updated"));
+}
+
 window.addEventListener('load', (event) => {
+  COREF_SPANS.forEach(s => {
+    if (s.metadata && s.metadata['abstract']) {
+      COREF_ENTITIES[s['span/id']] = s;
+    }
+  });
+  MENTIONS.forEach(m => {
+    COREF_MENTIONS[m['relation/target']] = {
+      entity: m['relation/source'],
+      relation: m['relation/id'],
+    };
+  });
   draw_trees();
   document.addEventListener('click', handle_click);
+  update_entity_select();
+});
+
+window.addEventListener('keypress', (event) => {
+  if (event.target.tagName == 'INPUT') {
+    return;
+  }
+  if (event.key === 'a') {
+    handle_click({
+      target: document.querySelector('.sentence.current .btn-add'),
+    });
+  } else if (event.key === 'd') {
+    handle_click({
+      target: document.querySelector('.sentence.current .btn-del'),
+    });
+  } else if (event.key === 's') {
+    handle_click({
+      target: document.querySelector('.sentence.current .btn-shift'),
+    });
+  } else if (event.key === 'e') {
+    handle_click({
+      target: document.querySelector('.sentence.current .btn-change'),
+    });
+  } else if (event.key === 'r') {
+    handle_click({
+      target: document.querySelector('.sentence.current .btn-rename'),
+    });
+  }
+  console.log(event);
+});
+
+async function get_entity_id() {
+  if (DIALOG_NEW_NAME.value) {
+    const md = {
+      'abstract': true,
+      name: DIALOG_NEW_NAME.value,
+      type: DIALOG_NEW_TYPE.value,
+    };
+    const resp = await fetch('/span', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        tokens: ALL_TOKENS,
+        'span-layer-id': LAYER_ID,
+        value: '',
+        metadata: md,
+      })});
+    if (resp.ok) {
+      const data = await resp.json();
+      COREF_ENTITIES[data.id] = {
+        'span/id': data.id,
+        'metadata': md,
+      };
+      update_entity_select();
+      return data.id;
+    }
+    return null;
+  }
+  return DIALOG_EXISTING.value;
+}
+
+async function handle_dialog_confirm(sentence) {
+  if (DIALOG_MODE.value === 'add') {
+    const id_list = selected_words(sentence);
+    const eid = await get_entity_id();
+    if (!eid) {
+      return;
+    }
+    fetch('/span', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        tokens: id_list,
+        'span-layer-id': LAYER_ID,
+        value: '',
+      })}).then(resp => resp.json()).then(data => {
+        let span = {
+          'span/id': data.id,
+          'span/tokens': id_list,
+          'span/value': '',
+        };
+        fetch('/relations', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            'layer-id': RELATION_LAYER_ID,
+            'source-id': eid,
+            'target-id': data.id,
+            value: '',
+          }),
+        }).then(resp => resp.json()).then(data2 => {
+          COREF_SPANS.push(span);
+          COREF_MENTIONS[data.id] = {
+            entity: eid,
+            relation: data2.id,
+          };
+          draw_coref(span);
+          draw_arcs(sentence);
+          Array.from(sentence.querySelectorAll('.word.selected')).forEach(
+            w => w.classList.remove('selected'));
+        });
+      });
+  } else if (DIALOG_MODE.value == 'change') {
+    console.log('hi');
+    const coref = sentence.querySelector('.coref-span.selected');
+    if (coref === null) {
+      return;
+    }
+    console.log(coref);
+    const mention = COREF_MENTIONS[coref.dataset.id];
+    const eid = await get_entity_id();
+    console.log(mention);
+    console.log(eid);
+    if (!eid) {
+      return;
+    }
+    console.log(mention);
+    if (mention) {
+      fetch('/relations/'+mention.relation, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          'span-id': eid,
+        }),
+      }).then(resp => resp.json()).then(data => {
+        COREF_MENTIONS[coref.dataset.id].entity = eid;
+        coref.innerText = coref_label(coref.dataset.id);
+        coref.dataset.entity = eid;
+        draw_arcs(sentence);
+      });
+    } else {
+      fetch('/relations', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          'layer-id': RELATION_LAYER_ID,
+          'source-id': eid,
+          'target-id': coref.dataset.id,
+          value: '',
+        }),
+      }).then(resp => resp.json()).then(data => {
+        COREF_MENTIONS[coref.dataset.id] = {
+          entity: eid,
+          relation: data.id,
+        };
+        coref.innerText = coref_label(coref.dataset.id);
+        coref.dataset.entity = eid;
+        draw_arcs(sentence);
+      });
+    }
+  } else if (DIALOG_MODE.value == 'rename') {
+    const name = DIALOG_NEW_NAME.value;
+    const type = DIALOG_NEW_TYPE.value;
+    const coref = sentence.querySelector('.coref-span.selected');
+    console.log(name, type, coref);
+    if (coref === null) {
+      return;
+    }
+    const mention = COREF_MENTIONS[coref.dataset.id];
+    if (name && mention) {
+      fetch('/span/'+mention.entity+'/metadata', {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify([
+          {op: 'set', path: ['name'], value: name},
+          {op: 'set', path: ['type'], value: type},
+        ]),
+      }).then(resp => {
+        COREF_ENTITIES[mention.entity].metadata.name = name;
+        COREF_ENTITIES[mention.entity].metadata.type = type;
+        const new_label = `${name} (${type})`;
+        Array.from(document.querySelectorAll(
+          `.coref-span[data-entity="${mention.entity}"]`)).forEach(
+            s => { s.innerText = new_label; });
+        update_entity_select();
+        Array.from(document.getElementsByClassName('sentence')).forEach(
+          draw_arcs);
+      });
+    }
+  }
+}
+
+DIALOG.addEventListener('close', () => {
+  const sentence = document.querySelector('.sentence.current');
+  if (sentence !== null && DIALOG.returnValue === 'confirm') {
+    handle_dialog_confirm(sentence);
+  }
+  DIALOG_NEW_NAME.value = '';
 });

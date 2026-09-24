@@ -52,38 +52,57 @@
       <svg class="tree"></svg>
       <div class="sentence-data"></div>
       <div class="controls">
-	      <button class="btn-add" disabled>Add Mention</button>
-	      <button class="btn-del" disabled>Delete Mention</button>
-	      <button class="btn-shift" disabled>Shift Mention</button>
-	      <button class="btn-change" disabled>Change Entity</button>
-	      <button class="btn-rename" disabled>Rename Entity</button>
-	      <input class="entity-name" list="entities"></input>
-	      <select class="entity-type">
-	        <option value="p">person</option>
-          <option value="t">time</option>
-          <option value="i">object</option>
-          <option value="l">place</option>
-          <option value="n">organization</option>
-          <option value="a">abstract</option>
-          <option value="c">animal</option>
-          <option value="v">plant</option>
-          <option value="e">event</option>
-          <option value="s">substance</option>
-	      </select>
+	      <button class="btn-add" title="a" disabled>Add Mention</button>
+	      <button class="btn-del" title="d" disabled>Delete Mention</button>
+	      <button class="btn-shift" title="s" disabled>Shift Mention</button>
+	      <button class="btn-change" title="e" disabled>Change Entity</button>
+	      <button class="btn-rename" title="r" disabled>Rename Entity</button>
       </div>
     </div>
     {% endfor %}
     <script type="text/javascript">
       var COREF_SPANS = {{coref['span-layer/spans']|tojson|safe}};
+      var MENTIONS = {{mentions['relation-layer/relations']|tojson|safe}};
       const LAYER_ID = "{{coref['span-layer/id']}}";
+      const RELATION_LAYER_ID = "{{mentions['relation-layer/id']}}";
       const DOCUMENT_ID = "{{document['document/id']}}";
-      var COREF_ENTITIES = {{entity_names|tojson|safe}};
+      const ALL_TOKENS = {{all_tokens|tojson|safe}};
     </script>
+    <dialog id="dialog">
+      <form method="dialog">
+        <input id="dialog-mode" type="hidden"></input>
+        <label for="existing-entity">Existing Entity</label>
+        <select id="existing-entity">
+        </select>
+        <br/>
+        <label for="entity-name">New Entity</label>
+        <input id="entity-name"></input>
+        <select id="entity-type">
+	        <option value="person">person</option>
+          <option value="time">time</option>
+          <option value="object">object</option>
+          <option value="place">place</option>
+          <option value="organization">organization</option>
+          <option value="abstract">abstract</option>
+          <option value="animal">animal</option>
+          <option value="plant">plant</option>
+          <option value="event">event</option>
+          <option value="substance">substance</option>
+	      </select>
+        <br/>
+        <button value="cancel" formmethod="dialog">Cancel</button>
+        <button value="confirm" formmethod="dialog">Confirm</button>
+      </form>
+      <p style="height: 5em"/>
+    </dialog>
     <script type="text/javascript" src="/static/draw-trees.js"></script>
-    <datalist id="entities">
-      {% for k, v in entity_names|items %}
-      <option data-id="{{k}}">{{v}}</option>
-      {% endfor %}
-    </datalist>
+    <script type="text/javascript" src="/static/chosen-assets-v3.1.4/chosen.min.js"></script>
+    <link rel="stylesheet" href="/static/chosen-assets-v3.1.4/chosen.min.css"/>
+    <script type="text/javascript">
+      window.addEventListener('load', () => {
+          document.getElementById('existing-entity').chosen();
+          document.getElementById('entity-type').chosen();
+      });
+    </script>
   </body>
 </html>
